@@ -1,0 +1,40 @@
+model:
+  type: vae
+  image_size: 32          # input image size
+  in_channels: 3          # RGB images
+  ch: 64                  # base number of feature channels
+  ch_mult: [1, 2, 4]      # channel multiplier per resolution level
+  num_res_blocks: 1       # residual blocks per level
+  z_channels: 64    
+
+data:
+  dataset: cifar10
+  path: "/home/groups/swl1/lhy/data/cifar10"  # Set your CIFAR-10 data path here
+  batch_size: 128
+  num_workers: 4
+  shuffle: true
+
+training:
+  epochs: 100
+  learning_rate: 0.001
+  weight_decay: 0.0
+  kl_weight: 0.00025
+  grad_clip: 1.0
+  
+  # Checkpointing
+  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/vae_cifar10"
+  save_interval: 10  # Save every N epochs
+  
+  # Logging
+  log_interval: 100  # Log every N steps
+  sample_interval: 500  # Sample reconstructions every N steps
+  num_samples: 16  # Number of images to reconstruct for logging
+
+wandb:
+  project: "generative-models"
+  entity: null  # Set your wandb entity/username
+  name: "vae_cifar10"
+  tags: ["vae", "cifar10"]
+  log_model: false
+
+seed: 42
