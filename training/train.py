@@ -20,7 +20,7 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
    # torch.backends.cudnn.deterministic = True
-   # torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.benchmark = True
 
 
 def get_model(config, device):
@@ -39,9 +39,10 @@ def get_model(config, device):
 
     model_map = {
         'vae': ('models.vae', 'VAE'),
+        'vqvae': ('models.vqvae', 'VQVAE'),
         'gan': ('models.gan', 'GAN'),
         'ddpm': ('models.ddpm', 'DDPM'),
-        'diffusion': ('models.ddpm', 'DDPM')
+        'dit': ('models.dit', 'DiT')
     }
 
     if model_type not in model_map:
@@ -57,31 +58,41 @@ def get_model(config, device):
 
 
 
-def get_trainer(model, config, device):
+def get_trainer(model, config, train_loader, device):
     """
     Initialize trainer based on model type.
     
     Args:
-        model: Model to train
-        config: Configuration dictionary
-        device: Device
+        model: The initialized model
+        config (dict): Configuration dictionary
+        train_loader: Training data loader
+        device (torch.device): Device to place trainer/model on
         
     Returns:
-        trainer: Initialized trainer
+        BaseTrainer: Initialized trainer instance
     """
     model_type = config['model']['type'].lower()
-    
-    if model_type == 'vae':
-        from training.vae_trainer import VAETrainer
-        return VAETrainer(model, config, device)
-    elif model_type == 'gan':
-        from training.gan_trainer import GANTrainer
-        return GANTrainer(model, config, device)
-    elif model_type == 'ddpm' or model_type == 'diffusion':
-        from training.diffusion_trainer import DiffusionTrainer
-        return DiffusionTrainer(model, config, device)
-    else:
+
+    # Map model types to trainer modules and class names
+    trainer_map = {
+        'vae': ('training.vae_trainer', 'VAETrainer'),
+        'vqvae': ('training.vqvae_trainer', 'VQVAETrainer'),
+        'gan': ('training.gan_trainer', 'GANTrainer'),
+        'ddpm': ('training.diffusion_trainer', 'DiffusionTrainer'),
+        'dit': ('training.DiffusionTrainer', 'DiffusionTrainer'),
+    }
+
+    if model_type not in trainer_map:
         raise ValueError(f"Unknown model type: {model_type}")
+
+    module_name, class_name = trainer_map[model_type]
+    module = __import__(module_name, fromlist=[class_name])
+    trainer_class = getattr(module, class_name)
+
+    # Initialize and return trainer
+    trainer = trainer_class(model, config, train_loader, device)
+    return trainer
+
 
 
 def main(args):
@@ -126,7 +137,7 @@ def main(args):
     
     # Initialize trainer
     print("Initializing trainer...")
-    trainer = get_trainer(model, config, device)
+    trainer = get_trainer(model, config, train_loader, device)
     
     # Load checkpoint if resume flag is set
     if args.resume:

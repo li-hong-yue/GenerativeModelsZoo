@@ -12,7 +12,7 @@ class VectorQuantizer(nn.Module):
         self.latent_dim = latent_dim
         self.beta = beta
 
-        # codebook embeddings
+        # Codebook embeddings
         self.embedding = nn.Embedding(self.num_codebook_vectors, self.latent_dim)
         self.embedding.weight.data.uniform_(
             -1.0 / self.num_codebook_vectors, 1.0 / self.num_codebook_vectors
@@ -47,10 +47,16 @@ class VectorQuantizer(nn.Module):
         # Straight-through estimator
         z_q = z_perm + (z_q - z_perm).detach()
 
+        # Compute perplexity (codebook usage)
+        encodings_one_hot = F.one_hot(min_encoding_indices, self.num_codebook_vectors).float()
+        avg_probs = torch.mean(encodings_one_hot, dim=0)
+        perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
+
         # Return in original [B, C, H, W] shape
         z_q = z_q.permute(0, 3, 1, 2)
 
-        return z_q, min_encoding_indices, loss
+        return z_q, min_encoding_indices, loss, perplexity
+
 
 
 class VQVAE(nn.Module):
@@ -63,7 +69,7 @@ class VQVAE(nn.Module):
         num_res_blocks=2,
         z_channels=256,
         num_codebook_vectors=512,
-        beta=0.25,
+        beta=0.25, 
         using_sa=True,
         using_mid_sa=True,
     ):
@@ -108,8 +114,8 @@ class VQVAE(nn.Module):
         h = self.encoder(x)  # [B, z_channels, H', W']
         h = self.quant_conv(h)
         h = F.normalize(h, dim=1)
-        z_q, indices, q_loss = self.vectorquantizer(h)
-        return z_q, indices, q_loss
+        z_q, indices, q_loss, perplexity = self.vectorquantizer(h)
+        return z_q, indices, q_loss, perplexity
 
     # -----------------------------
     # Decode from quantized latent
@@ -123,9 +129,9 @@ class VQVAE(nn.Module):
     # Forward pass
     # -----------------------------
     def forward(self, x):
-        z_q, indices, q_loss = self.encode(x)
+        z_q, indices, q_loss, perplexity = self.encode(x)
         x_recon = self.decode(z_q)
-        return x_recon, indices, q_loss
+        return x_recon, indices, q_loss, perplexity
 
     # -----------------------------
     # VQ-VAE loss: reconstruction + VQ loss
@@ -140,7 +146,7 @@ class VQVAE(nn.Module):
 
         total_loss = recon_loss + q_loss
         return total_loss, {"loss": total_loss.item(), "recon_loss": recon_loss.item(), "vq_loss": q_loss.item()}
-
+ 
     # -----------------------------
     # Sampling from codebook
     # -----------------------------

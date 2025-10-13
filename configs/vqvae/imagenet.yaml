@@ -1,11 +1,13 @@
 model:
-  type: vae
+  type: vqvae
   image_size: 256  # ImageNet is typically 256x256 or 224x224
   in_channels: 3
   ch: 128                  # base number of feature channels
   ch_mult: [1, 2, 4, 8]      # channel multiplier per resolution level
   num_res_blocks: 2       # residual blocks per level
   z_channels: 128    
+  num_codebook_vectors: 4096
+  beta:  0.25
 
 data:
   dataset: imagenet
@@ -19,12 +21,12 @@ training:
   epochs: 100
   learning_rate: 0.00005 #1e-4  # Lower LR for larger dataset
   weight_decay: 0.00001 # 1e-5
-  kl_weight: 0.0001  # Lower KL weight for complex data
+  
   grad_clip: 1.0
   optimizer: adamw  # AdamW often works better for ImageNet
   
   # Checkpointing
-  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/vae_imagenet"
+  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/vqvae_imagenet"
   save_interval: 5  # Save more frequently
   
   # Logging
@@ -35,8 +37,8 @@ training:
 wandb:
   project: "generative-models"
   entity: null  # Set your wandb entity/username
-  name: "vae_imagenet_256"
-  tags: ["vae", "imagenet", "256x256"]
+  name: "vqvae_imagenet_256"
+  tags: ["vqvae", "imagenet", "256x256"]
   log_model: false
 
 seed: 42

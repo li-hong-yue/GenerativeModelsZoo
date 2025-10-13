@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 class BaseTrainer(ABC):
     """Base trainer class with common functionality for all models."""
     
-    def __init__(self, model, config, device):
+    def __init__(self, model, config, train_loader, device):
         self.model = model
         self.config = config
         self.device = device
@@ -16,6 +16,10 @@ class BaseTrainer(ABC):
         # Setup optimizer
         self.optimizer = self._setup_optimizer()
         self.scaler = torch.cuda.amp.GradScaler()
+
+        self.num_batches = len(train_loader)
+
+        self.scheduler = self._setup_scheduler()
         
         # Training parameters
         self.grad_clip = config['training'].get('grad_clip', 0)
@@ -58,6 +62,95 @@ class BaseTrainer(ABC):
             )
         else:
             raise ValueError(f"Unknown optimizer: {optimizer_type}")
+
+    def _setup_scheduler(self):
+        """Setup learning rate scheduler with optional warmup and cosine annealing."""
+        training_cfg = self.config['training']
+        scheduler_type = training_cfg.get('scheduler', 'cosine_warmup').lower()
+        num_epochs = training_cfg['epochs']
+    
+        # Total number of training steps
+        total_steps = num_epochs * self.num_batches
+    
+        if scheduler_type == 'cosine_warmup':
+            # Warmup parameters
+            warmup_epochs = training_cfg.get('warmup_epochs', 5)
+            warmup_steps = warmup_epochs * self.num_batches
+            eta_min = training_cfg.get('eta_min', 0)
+    
+            # ✅ Linear warmup scheduler
+            warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+                self.optimizer,
+                start_factor=training_cfg.get('warmup_start_factor', 1e-3),  # 0.001 * base LR by default
+                total_iters=warmup_steps
+            )
+    
+            # ✅ Cosine annealing scheduler
+            cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                T_max=total_steps - warmup_steps,
+                eta_min=eta_min
+            )
+    
+            # ✅ Combine warmup + cosine in sequence
+            scheduler = torch.optim.lr_scheduler.SequentialLR(
+                self.optimizer,
+                schedulers=[warmup_scheduler, cosine_scheduler],
+                milestones=[warmup_steps]
+            )
+    
+            return scheduler
+        
+        elif scheduler_type == 'cosine':
+            # Cosine annealing scheduler
+            eta_min = self.config['training'].get('eta_min', 0)
+            return torch.optim.lr_scheduler.CosineAnnealingLR(
+                self.optimizer,
+                T_max=num_epochs * self.num_batches,
+                eta_min=eta_min
+            )
+        elif scheduler_type == 'step':
+            # Step decay scheduler
+            step_size = self.config['training'].get('step_size', 30)
+            gamma = self.config['training'].get('gamma', 0.1)
+            return torch.optim.lr_scheduler.StepLR(
+                self.optimizer,
+                step_size=step_size,
+                gamma=gamma
+            )
+        elif scheduler_type == 'multistep':
+            # Multi-step decay scheduler
+            milestones = self.config['training'].get('milestones', [30, 60, 90])
+            gamma = self.config['training'].get('gamma', 0.1)
+            return torch.optim.lr_scheduler.MultiStepLR(
+                self.optimizer,
+                milestones=milestones,
+                gamma=gamma
+            )
+        elif scheduler_type == 'exponential':
+            # Exponential decay scheduler
+            gamma = self.config['training'].get('gamma', 0.95)
+            return torch.optim.lr_scheduler.ExponentialLR(
+                self.optimizer,
+                gamma=gamma
+            )
+        elif scheduler_type == 'reduce_on_plateau':
+            # Reduce on plateau scheduler
+            mode = self.config['training'].get('scheduler_mode', 'min')
+            factor = self.config['training'].get('factor', 0.1)
+            patience = self.config['training'].get('patience', 10)
+            return torch.optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer,
+                mode=mode,
+                factor=factor,
+                patience=patience
+            )
+        elif scheduler_type == 'none':
+            # No scheduler
+            return None
+        else:
+            raise ValueError(f"Unknown scheduler: {scheduler_type}")
+    
     
     @abstractmethod
     def compute_loss(self, batch):
@@ -137,6 +230,7 @@ class BaseTrainer(ABC):
             
             # Training step
             loss, loss_dict = self.train_step(batch)
+            self.scheduler.step()
             
             # Accumulate losses
             for key, value in loss_dict.items():
@@ -148,6 +242,7 @@ class BaseTrainer(ABC):
             if self.global_step % self.config['training']['log_interval'] == 0:
                 log_dict = {f'train/{k}': v for k, v in loss_dict.items()}
                 log_dict['step'] = self.global_step
+                log_dict['learning_rate'] = self.optimizer.param_groups[0]['lr']
                 wandb.log(log_dict)
             
             # Sample logging
@@ -172,6 +267,7 @@ class BaseTrainer(ABC):
             'global_step': self.global_step,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
             'best_metric': self.best_metric,
             'config': self.config
         }
@@ -196,6 +292,8 @@ class BaseTrainer(ABC):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if self.scheduler and checkpoint.get('scheduler_state_dict'):
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         self.current_epoch = checkpoint['epoch']
         self.global_step = checkpoint['global_step']
         self.best_metric = checkpoint.get('best_metric', float('inf'))
@@ -216,7 +314,8 @@ class BaseTrainer(ABC):
             
             # Print epoch summary
             loss_str = ', '.join([f"{k}={v:.4f}" for k, v in epoch_losses.items()])
-            print(f"Epoch {epoch}: {loss_str}")
+            current_lr = self.optimizer.param_groups[0]['lr']
+            print(f"Epoch {epoch}: {loss_str}, LR={current_lr:.6f}")
             
             # Save checkpoint
             if (epoch + 1) % self.config['training']['save_interval'] == 0:
