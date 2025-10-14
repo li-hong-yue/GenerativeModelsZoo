@@ -41,8 +41,10 @@ def get_model(config, device):
         'vae': ('models.vae', 'VAE'),
         'vqvae': ('models.vqvae', 'VQVAE'),
         'gan': ('models.gan', 'GAN'),
+        'wgan': ('models.gan', 'WGAN'),
         'ddpm': ('models.ddpm', 'DDPM'),
-        'dit': ('models.dit', 'DiT')
+        'dit': ('models.dit', 'DiT'),
+        
     }
 
     if model_type not in model_map:
@@ -53,7 +55,7 @@ def get_model(config, device):
     model_class = getattr(module, class_name)
 
     model = model_class(**model_kwargs)
-    model = torch.compile(model)
+  #  model = torch.compile(model)
     return model.to(device)
 
 
@@ -78,8 +80,9 @@ def get_trainer(model, config, train_loader, device):
         'vae': ('training.vae_trainer', 'VAETrainer'),
         'vqvae': ('training.vqvae_trainer', 'VQVAETrainer'),
         'gan': ('training.gan_trainer', 'GANTrainer'),
+         'wgan': ('training.gan_trainer', 'GANTrainer'),
         'ddpm': ('training.diffusion_trainer', 'DiffusionTrainer'),
-        'dit': ('training.DiffusionTrainer', 'DiffusionTrainer'),
+        'dit': ('training.diffusion_trainer', 'DiffusionTrainer'),
     }
 
     if model_type not in trainer_map:

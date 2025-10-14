@@ -20,16 +20,14 @@ data:
 
 training:
   epochs: 500
-  learning_rate: 2e-4
+  learning_rate: 0.0002 # 2e-4
   weight_decay: 0.0
   grad_clip: 1.0
   
   # Optimizer
   optimizer: adamw
   
-  # Learning rate scheduler
-  scheduler: cosine
-  eta_min: 0
+  
   
   # EMA settings
   use_ema: true

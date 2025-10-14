@@ -1,0 +1,50 @@
+model:
+  type: wgan  # Wasserstein GAN with Gradient Penalty
+  latent_dim: 100
+  image_size: 32
+  in_channels: 3
+  feature_dim: 64
+  lambda_gp: 10  # Gradient penalty coefficient
+
+data:
+  dataset: cifar10
+  path: "/home/groups/swl1/lhy/data/cifar10"  # Set your CIFAR-10 data path here
+  batch_size: 64
+  num_workers: 4
+  shuffle: true
+
+training:
+  epochs: 200
+  learning_rate: 0.0001  # Lower LR for WGAN
+  generator_lr: 0.0001
+  critic_lr: 0.0001  # Critic instead of discriminator
+  weight_decay: 0.0
+  grad_clip: 0
+  
+  # Optimizer
+  optimizer: adam
+  betas: [0.0, 0.9]  # Different betas for WGAN (no momentum for first moment)
+  
+  # Learning rate scheduler
+  scheduler: constant
+  
+  # WGAN-specific settings
+  n_critic: 5  # Train critic 5 times per generator update (important for WGAN)
+  
+  # Checkpointing
+  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/wgan_cifar10"
+  save_interval: 20
+  
+  # Logging
+  log_interval: 100
+  sample_interval: 500
+  num_samples: 16
+
+wandb:
+  project: "generative-models"
+  entity: null
+  name: "wgan_cifar10"
+  tags: ["wgan", "wgan-gp", "cifar10"]
+  log_model: false
+
+seed: 42

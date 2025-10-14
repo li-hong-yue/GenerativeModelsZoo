@@ -145,9 +145,12 @@ class BaseTrainer(ABC):
                 factor=factor,
                 patience=patience
             )
-        elif scheduler_type == 'none':
-            # No scheduler
-            return None
+        elif scheduler_type == 'constant':
+            # Constant learning rate scheduler
+            return torch.optim.lr_scheduler.LambdaLR(
+                self.optimizer,
+                lr_lambda=lambda epoch: 1.0
+            )
         else:
             raise ValueError(f"Unknown scheduler: {scheduler_type}")
     

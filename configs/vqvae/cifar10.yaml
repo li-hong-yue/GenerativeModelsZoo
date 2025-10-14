@@ -2,12 +2,13 @@ model:
   type: vqvae
   image_size: 32          # input image size
   in_channels: 3          # RGB images
-  ch: 64                  # base number of feature channels
-  ch_mult: [1, 2, 4]      # channel multiplier per resolution level
-  num_res_blocks: 2       # residual blocks per level
-  z_channels: 128   
+  ch: 128                  # base number of feature channels
+  ch_mult: [1,2]      # channel multiplier per resolution level
+  num_res_blocks: 1       # residual blocks per level
+  z_channels: 64   
   num_codebook_vectors: 512
-  beta:  0.5
+  beta:  0.25
+  decay: 0.99
 
 data:
   dataset: cifar10
@@ -18,10 +19,12 @@ data:
 
 training:
   epochs: 100
-  learning_rate: 0.0001
-  weight_decay: 0.0
+  learning_rate: 0.0002
+  weight_decay: 0.00001
 
   grad_clip: 1.0
+  optimizer: adamw
+  scheduler: constant
   
   # Checkpointing
   checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/vqvae_cifar10"
@@ -30,7 +33,7 @@ training:
   # Logging
   log_interval: 100  # Log every N steps
   sample_interval: 500  # Sample reconstructions every N steps
-  num_samples: 16  # Number of images to reconstruct for logging
+  num_samples: 8  # Number of images to reconstruct for logging
 
 wandb:
   project: "generative-models"
@@ -39,4 +42,4 @@ wandb:
   tags: ["vqvae", "cifar10"]
   log_model: false
 
-seed: 42
+seed: 40

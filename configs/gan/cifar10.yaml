@@ -1,0 +1,49 @@
+model:
+  type: gan  # Standard GAN with BCE loss
+  latent_dim: 100
+  image_size: 32
+  in_channels: 3
+  feature_dim: 64  # Base feature dimension
+
+data:
+  dataset: cifar10
+  path: "/home/groups/swl1/lhy/data/cifar10"  # Set your CIFAR-10 data path here
+  batch_size: 64
+  num_workers: 4
+  shuffle: true
+
+training:
+  epochs: 200
+  learning_rate: 0.0002
+  generator_lr: 0.0002  # Can set different LRs
+  discriminator_lr: 0.0002
+  weight_decay: 0.0
+  grad_clip: 0  # Usually not needed for GANs
+  
+  # Optimizer
+  optimizer: adam
+  betas: [0.5, 0.999]  # Beta values for Adam (standard for GANs)
+  
+  # Learning rate scheduler
+  scheduler: constant  # Can use 'cosine' or 'step' if desired
+  
+  # GAN-specific settings
+  n_critic: 1  # Train discriminator once per generator update
+  
+  # Checkpointing
+  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/gan_cifar10"
+  save_interval: 20
+  
+  # Logging
+  log_interval: 100
+  sample_interval: 500
+  num_samples: 16
+
+wandb:
+  project: "generative-models"
+  entity: null  # Set your wandb entity/username
+  name: "gan_cifar10"
+  tags: ["gan", "cifar10"]
+  log_model: false
+
+seed: 42
