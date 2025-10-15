@@ -112,6 +112,7 @@ def main(args):
     # Initialize wandb
     wandb.init(
         project=config['wandb']['project'],
+        dir= '/scratch/users/lhy',
      #   entity=config['wandb']['entity'],
         name=config['wandb']['name'],
         config=config,
