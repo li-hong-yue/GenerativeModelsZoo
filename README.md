@@ -3,28 +3,27 @@
 A collection of modern **generative models** including:
 **VAE, VQ-VAE, GAN, WGAN, VQGAN, DDPM, DiT, CFG, Flow Matching, and VAR**.
 
----
+
 
 ## 🚀 Setup 
 
-# 1. Install dependencies
+Install dependencies
 ```
 pip install -r requirements.txt
 ```
-# 2. Configure paths & logging
-    - Update dataset and checkpoint paths in the config files.
-    - Log in to Weights & Biases:
-    ```
-    wandb login
-    ```
+Configure paths & logging
+- Update dataset and checkpoint paths in the config files.
+- Log in to Weights & Biases:
+```
+wandb login
+```
 ## 🧠 Training
 
-# 3. Train a model
 ```
 python training/train.py --config configs/{model}/{dataset}.yaml
 ```
 
-# Example:
+Example:
 ```
 python training/train.py --config configs/ddpm/cifar10.yaml
 ```
