@@ -131,7 +131,7 @@ class DiT(nn.Module):
     ):
         super().__init__()
         
-        self.img_size = img_size
+        self.image_size = image_size
         self.patch_size = patch_size
         self.in_channels = in_channels
         self.out_channels = in_channels

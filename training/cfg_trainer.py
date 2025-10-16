@@ -11,8 +11,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 from training.base_trainer import BaseTrainer
 
 
-class DiffusionTrainer(BaseTrainer):
-    """Trainer for Diffusion Models (DDPM, DiT, etc.)."""
+class CFGTrainer(BaseTrainer):
+    """Trainer for Classifier-Free Guidance diffusion models."""
     
     def __init__(self, model, config, train_loader, device):
         super().__init__(model, config, train_loader, device)
@@ -36,10 +36,12 @@ class DiffusionTrainer(BaseTrainer):
         
         # Sampling parameters
         self.num_inference_steps = config['training'].get('num_inference_steps', 50)
+        self.guidance_scale = config['training'].get('guidance_scale', 7.5)
+        self.num_classes = config['model']['num_classes']
     
     def setup_sampling_scheduler(self):
         """Setup scheduler for sampling."""
-        scheduler_type = self.config['training'].get('sampling_scheduler', 'ddpm')
+        scheduler_type = self.config['training'].get('sampling_scheduler', 'ddim')
         num_train_timesteps = self.model.timesteps
         
         if scheduler_type == 'ddpm':
@@ -57,26 +59,27 @@ class DiffusionTrainer(BaseTrainer):
     
     def compute_loss(self, batch):
         """
-        Compute diffusion loss for a batch.
+        Compute classifier-free guidance loss for a batch.
         
         Args:
-            batch: Tuple of (images, labels) or just images
+            batch: Tuple of (images, labels)
             
         Returns:
             loss: Total loss
             loss_dict: Dictionary of loss components
         """
-        # Extract images from batch
+        # Extract images and labels from batch
         if isinstance(batch, (list, tuple)):
-            images = batch[0]
+            images, labels = batch[0], batch[1]
         else:
-            images = batch
+            raise ValueError("CFG requires both images and labels")
         
         # Compute loss using model's loss function
-        loss, loss_dict = self.model.loss_function(images)
+        loss, loss_dict = self.model.loss_function(images, labels)
         
         # Store for sampling
-        self._last_batch = images
+        self._last_batch_images = images
+        self._last_batch_labels = labels
         
         return loss, loss_dict
     
@@ -91,17 +94,22 @@ class DiffusionTrainer(BaseTrainer):
         return loss, loss_dict
     
     @torch.no_grad()
-    def sample(self, batch_size, use_ema=True):
+    def sample_conditional(self, num_samples, class_labels, use_ema=True, guidance_scale=None):
         """
-        Generate samples using the trained model.
+        Generate samples with classifier-free guidance.
         
         Args:
-            batch_size: Number of samples to generate
-            use_ema: Whether to use EMA model for sampling
+            num_samples: Number of samples to generate
+            class_labels: Class labels to generate (num_samples,)
+            use_ema: Whether to use EMA model
+            guidance_scale: Guidance scale (default from config)
             
         Returns:
             samples: Generated images
         """
+        if guidance_scale is None:
+            guidance_scale = self.guidance_scale
+        
         # Use EMA model if available
         if use_ema and self.use_ema:
             self.ema.store(self.model.parameters())
@@ -109,21 +117,16 @@ class DiffusionTrainer(BaseTrainer):
         
         self.model.eval()
         
-        # Start from random noise
-        shape = (batch_size, self.model.in_channels, self.model.image_size, self.model.image_size)
-        image = torch.randn(shape, device=self.device)
+        # Move class labels to device
+        class_labels = class_labels.to(self.device)
         
-        # Set timesteps for sampling
-        self.sampling_scheduler.set_timesteps(self.num_inference_steps)
-        
-        # Denoise
-        for t in self.sampling_scheduler.timesteps:
-            # Predict noise
-            timesteps = torch.full((batch_size,), t, device=self.device, dtype=torch.long)
-            noise_pred = self.model(image, timesteps)
-            
-            # Compute previous image
-            image = self.sampling_scheduler.step(noise_pred, t, image).prev_sample
+        # Generate samples with guidance
+        images = self.model.sample(
+            num_samples,
+            class_labels,
+            self.sampling_scheduler,
+            guidance_scale=guidance_scale
+        )
         
         # Restore original model if using EMA
         if use_ema and self.use_ema:
@@ -131,37 +134,89 @@ class DiffusionTrainer(BaseTrainer):
         
         self.model.train()
         
-        # Clamp to [0, 1] range
-        image = torch.clamp(image, 0.0, 1.0)
-        
-        return image
+        return images
     
     def log_samples(self, batch):
-        """Log original images and generated samples to wandb."""
-        num_samples = min(
-            self.config['training']['num_samples'],
-            self._last_batch.size(0)
-        )
+        """Log original images and generated samples per class to wandb."""
+        num_classes = self.num_classes
+        samples_per_class = min(4, self.config['training']['num_samples'] // num_classes)
         
-        # Log original images
+        # Log original images (from batch)
+        original_images = self._last_batch_images[:min(8, len(self._last_batch_images))]
         wandb.log({
             'samples/original': [
-                wandb.Image(self._last_batch[i])
-                for i in range(num_samples)
+                wandb.Image(original_images[i])
+                for i in range(len(original_images))
             ],
             'step': self.global_step
         })
         
-        # Generate and log samples
+        # Generate samples for each class with guidance
         try:
-            generated = self.sample(num_samples, use_ema=self.use_ema)
-            wandb.log({
-                'samples/generated': [
+            generated_by_class = {}
+            
+            for class_id in range(num_classes):
+                # Create class labels for this class
+                class_labels = torch.full(
+                    (samples_per_class,),
+                    class_id,
+                    dtype=torch.long,
+                    device=self.device
+                )
+                
+                # Generate samples
+                generated = self.sample_conditional(
+                    samples_per_class,
+                    class_labels,
+                    use_ema=self.use_ema,
+                    guidance_scale=self.guidance_scale
+                )
+                
+                # Store for logging
+                generated_by_class[f'class_{class_id}'] = [
                     wandb.Image(generated[i])
-                    for i in range(num_samples)
-                ],
-                'step': self.global_step
-            })
+                    for i in range(samples_per_class)
+                ]
+            
+            # Log all generated images grouped by class
+            log_dict = {}
+            for class_id in range(num_classes):
+                key = f'samples/generated_class_{class_id}'
+                log_dict[key] = generated_by_class[f'class_{class_id}']
+            
+            log_dict['step'] = self.global_step
+            wandb.log(log_dict)
+            
+            # Also generate samples without guidance for comparison
+            generated_no_guidance = {}
+            for class_id in range(min(3, num_classes)):  # Only 3 classes to limit logging
+                class_labels = torch.full(
+                    (samples_per_class,),
+                    class_id,
+                    dtype=torch.long,
+                    device=self.device
+                )
+                
+                generated = self.sample_conditional(
+                    samples_per_class,
+                    class_labels,
+                    use_ema=self.use_ema,
+                    guidance_scale=1.0  # No guidance
+                )
+                
+                generated_no_guidance[f'class_{class_id}'] = [
+                    wandb.Image(generated[i])
+                    for i in range(samples_per_class)
+                ]
+            
+            log_dict = {}
+            for class_id in range(min(3, num_classes)):
+                key = f'samples/no_guidance_class_{class_id}'
+                log_dict[key] = generated_no_guidance[f'class_{class_id}']
+            
+            log_dict['step'] = self.global_step
+            wandb.log(log_dict)
+            
         except Exception as e:
             print(f"Warning: Failed to generate samples: {e}")
     

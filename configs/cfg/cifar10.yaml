@@ -1,0 +1,61 @@
+model:
+  type: cfg  # Classifier-Free Guidance
+  image_size: 32
+  in_channels: 3
+  model_channels: 128
+  channel_mult: [1, 2, 2, 4]
+  num_res_blocks: 2
+  attention_resolutions: [16, 8]
+  dropout: 0.1
+  num_heads: 4
+  num_classes: 10  # CIFAR-10 has 10 classes
+  timesteps: 1000
+  beta_schedule: linear  # linear or cosine
+  unconditional_prob: 0.1  # Probability of dropping class label during training (important for CFG)
+
+data:
+  dataset: cifar10
+  path: "/home/groups/swl1/lhy/data/cifar10"  # Set your CIFAR-10 data path here
+  batch_size: 128
+  num_workers: 4
+  shuffle: true
+
+training:
+  epochs: 500
+  learning_rate: 2e-4
+  weight_decay: 0.0
+  grad_clip: 1.0
+  
+  # Optimizer
+  optimizer: adamw
+  
+
+  
+  # EMA settings
+  use_ema: true
+  ema_decay: 0.9999
+  ema_inv_gamma: 1.0
+  ema_power: 0.6667  # 2/3
+  
+  # Sampling settings
+  sampling_scheduler: ddim  # ddim is faster than ddpm
+  num_inference_steps: 50  # Number of denoising steps during sampling
+  guidance_scale: 7.5  # Guidance scale (1.0 = no guidance, higher = stronger guidance)
+  
+  # Checkpointing
+  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/cfg_cifar10"
+  save_interval: 25
+  
+  # Logging
+  log_interval: 100
+  sample_interval: 1000
+  num_samples: 16  # Total samples (will generate 4 per class for 10 classes)
+
+wandb:
+  project: "generative-models"
+  entity: null  # Set your wandb entity/username
+  name: "cfg_cifar10"
+  tags: ["cfg", "classifier-free-guidance", "cifar10", "conditional"]
+  log_model: false
+
+seed: 42

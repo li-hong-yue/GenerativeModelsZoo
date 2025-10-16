@@ -4,51 +4,54 @@ import torch.nn.functional as F
 import math
 
 
-class SinusoidalPositionEmbeddings(nn.Module):
-    """Sinusoidal time embeddings."""
+class SinusoidalPositionEmbedding(nn.Module):
+    """Sinusoidal positional embedding for timesteps."""
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
-
-    def forward(self, time):
-        device = time.device
+    
+    def forward(self, t):
+        device = t.device
         half_dim = self.dim // 2
         embeddings = math.log(10000) / (half_dim - 1)
         embeddings = torch.exp(torch.arange(half_dim, device=device) * -embeddings)
-        embeddings = time[:, None] * embeddings[None, :]
-        embeddings = torch.cat((embeddings.sin(), embeddings.cos()), dim=-1)
+        embeddings = t[:, None] * embeddings[None, :]
+        embeddings = torch.cat([torch.sin(embeddings), torch.cos(embeddings)], dim=-1)
         return embeddings
 
 
 class ResidualBlock(nn.Module):
-    """Residual block with time embedding."""
-    def __init__(self, in_channels, out_channels, time_emb_dim, dropout=0.1):
+    """Residual block with timestep embedding."""
+    def __init__(self, in_channels, out_channels, time_channels, dropout=0.1):
         super().__init__()
         
-        self.time_mlp = nn.Linear(time_emb_dim, out_channels)
+        self.conv1 = nn.Sequential(
+            nn.GroupNorm(32, in_channels),
+            nn.SiLU(),
+            nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        )
         
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1)
+        self.time_emb = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(time_channels, out_channels)
+        )
         
-        self.norm1 = nn.GroupNorm(8, out_channels)
-        self.norm2 = nn.GroupNorm(8, out_channels)
-        
-        self.dropout = nn.Dropout(dropout)
+        self.conv2 = nn.Sequential(
+            nn.GroupNorm(32, out_channels),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Conv2d(out_channels, out_channels, 3, padding=1)
+        )
         
         if in_channels != out_channels:
-            self.shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+            self.shortcut = nn.Conv2d(in_channels, out_channels, 1)
         else:
             self.shortcut = nn.Identity()
     
-    def forward(self, x, time_emb):
-        h = self.conv1(F.silu(self.norm1(x)))
-        
-        # Add time embedding
-        time_emb = F.silu(self.time_mlp(time_emb))
-        h = h + time_emb[:, :, None, None]
-        
-        h = self.conv2(self.dropout(F.silu(self.norm2(h))))
-        
+    def forward(self, x, t):
+        h = self.conv1(x)
+        h = h + self.time_emb(t)[:, :, None, None]
+        h = self.conv2(h)
         return h + self.shortcut(x)
 
 
@@ -57,34 +60,56 @@ class AttentionBlock(nn.Module):
     def __init__(self, channels, num_heads=4):
         super().__init__()
         self.num_heads = num_heads
-        self.norm = nn.GroupNorm(8, channels)
-        self.qkv = nn.Conv2d(channels, channels * 3, kernel_size=1)
-        self.proj = nn.Conv2d(channels, channels, kernel_size=1)
+        self.norm = nn.GroupNorm(32, channels)
+        self.qkv = nn.Conv2d(channels, channels * 3, 1)
+        self.proj = nn.Conv2d(channels, channels, 1)
     
     def forward(self, x):
-        b, c, h, w = x.shape
-        
-        x_norm = self.norm(x)
-        qkv = self.qkv(x_norm)
+        B, C, H, W = x.shape
+        h = self.norm(x)
+        qkv = self.qkv(h)
+        q, k, v = qkv.chunk(3, dim=1)
         
         # Reshape for multi-head attention
-        qkv = qkv.reshape(b, 3, self.num_heads, c // self.num_heads, h * w)
-        qkv = qkv.permute(1, 0, 2, 4, 3)  # (3, b, heads, hw, c_per_head)
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        q = q.view(B, self.num_heads, C // self.num_heads, H * W).transpose(2, 3)
+        k = k.view(B, self.num_heads, C // self.num_heads, H * W).transpose(2, 3)
+        v = v.view(B, self.num_heads, C // self.num_heads, H * W).transpose(2, 3)
         
         # Attention
-        attn = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(c // self.num_heads)
-        attn = F.softmax(attn, dim=-1)
+        scale = (C // self.num_heads) ** -0.5
+        attn = torch.softmax(torch.matmul(q, k.transpose(-2, -1)) * scale, dim=-1)
+        h = torch.matmul(attn, v)
         
-        # Apply attention to values
-        out = torch.matmul(attn, v)
-        out = out.permute(0, 1, 3, 2).reshape(b, c, h, w)
+        # Reshape back
+        h = h.transpose(2, 3).contiguous().view(B, C, H, W)
+        h = self.proj(h)
         
-        return x + self.proj(out)
+        return x + h
+
+
+class Downsample(nn.Module):
+    """Downsampling layer."""
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.Conv2d(channels, channels, 3, stride=2, padding=1)
+    
+    def forward(self, x):
+        return self.conv(x)
+
+
+class Upsample(nn.Module):
+    """Upsampling layer."""
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.Conv2d(channels, channels, 3, padding=1)
+    
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        return self.conv(x)
 
 
 class UNet(nn.Module):
-    """UNet architecture for DDPM."""
+    """UNet architecture for diffusion models."""
     def __init__(
         self,
         in_channels=3,
@@ -97,108 +122,136 @@ class UNet(nn.Module):
         num_heads=4
     ):
         super().__init__()
-        
+
         self.in_channels = in_channels
+        self.out_channels = out_channels
         self.model_channels = model_channels
+        self.num_res_blocks = num_res_blocks
+        self.attention_resolutions = attention_resolutions
         
-        # Time embedding
-        time_emb_dim = model_channels * 4
-        self.time_embedding = nn.Sequential(
-            SinusoidalPositionEmbeddings(model_channels),
-            nn.Linear(model_channels, time_emb_dim),
+        # Timestep embedding
+        time_embed_dim = model_channels * 4
+        self.time_embed = nn.Sequential(
+            SinusoidalPositionEmbedding(model_channels),
+            nn.Linear(model_channels, time_embed_dim),
             nn.SiLU(),
-            nn.Linear(time_emb_dim, time_emb_dim),
+            nn.Linear(time_embed_dim, time_embed_dim)
         )
         
-        # Input projection
-        self.input_conv = nn.Conv2d(in_channels, model_channels, kernel_size=3, padding=1)
+        # Initial convolution
+        self.conv_in = nn.Conv2d(in_channels, model_channels, 3, padding=1)
         
-        # Downsampling
+        # Encoder
         self.downs = nn.ModuleList()
+        self.down_samples = nn.ModuleList()
+        channels = [model_channels]
+        current_resolution = 32  # Starting resolution
         ch = model_channels
-        chs = [ch]
         
         for level, mult in enumerate(channel_mult):
             out_ch = model_channels * mult
             
             for _ in range(num_res_blocks):
-                self.downs.append(ResidualBlock(ch, out_ch, time_emb_dim, dropout))
+                self.downs.append(nn.ModuleList([
+                    ResidualBlock(ch, out_ch, time_embed_dim, dropout),
+                    AttentionBlock(out_ch, num_heads) if current_resolution in attention_resolutions else nn.Identity()
+                ]))
                 ch = out_ch
-                chs.append(ch)
-                
-                # Add attention at specified resolutions
-                if level in attention_resolutions or (level == len(channel_mult) - 1):
-                    self.downs.append(AttentionBlock(ch, num_heads))
+                channels.append(ch)
             
-            # Downsample (except at the last level)
+            # Downsample (except for last level)
             if level != len(channel_mult) - 1:
-                self.downs.append(nn.Conv2d(ch, ch, kernel_size=3, stride=2, padding=1))
-                chs.append(ch)
+                self.down_samples.append(Downsample(ch))
+                channels.append(ch)
+                current_resolution //= 2
+            else:
+                self.down_samples.append(None)
         
         # Middle
         self.middle = nn.ModuleList([
-            ResidualBlock(ch, ch, time_emb_dim, dropout),
+            ResidualBlock(ch, ch, time_embed_dim, dropout),
             AttentionBlock(ch, num_heads),
-            ResidualBlock(ch, ch, time_emb_dim, dropout),
+            ResidualBlock(ch, ch, time_embed_dim, dropout)
         ])
         
-        # Upsampling
+        # Decoder
         self.ups = nn.ModuleList()
+        self.up_samples = nn.ModuleList()
         
         for level, mult in reversed(list(enumerate(channel_mult))):
             out_ch = model_channels * mult
             
             for i in range(num_res_blocks + 1):
-                self.ups.append(ResidualBlock(ch + chs.pop(), out_ch, time_emb_dim, dropout))
+                ch_skip = channels.pop()
+                self.ups.append(nn.ModuleList([
+                    ResidualBlock(ch + ch_skip, out_ch, time_embed_dim, dropout),
+                    AttentionBlock(out_ch, num_heads) if current_resolution in attention_resolutions else nn.Identity()
+                ]))
                 ch = out_ch
-                
-                # Add attention at specified resolutions
-                if level in attention_resolutions or (level == len(channel_mult) - 1):
-                    self.ups.append(AttentionBlock(ch, num_heads))
             
-            # Upsample (except at the first level)
+            # Upsample (except for last level)
             if level != 0:
-                self.ups.append(nn.ConvTranspose2d(ch, ch, kernel_size=4, stride=2, padding=1))
+                self.up_samples.append(Upsample(ch))
+                current_resolution *= 2
+            else:
+                self.up_samples.append(None)
         
-        # Output projection
-        self.output_conv = nn.Sequential(
-            nn.GroupNorm(8, ch),
+        # Output
+        self.conv_out = nn.Sequential(
+            nn.GroupNorm(32, ch),
             nn.SiLU(),
-            nn.Conv2d(ch, out_channels, kernel_size=3, padding=1),
+            nn.Conv2d(ch, out_channels, 3, padding=1)
         )
     
     def forward(self, x, timesteps):
-        # Time embedding
-        t_emb = self.time_embedding(timesteps)
+        # Timestep embedding
+        t_emb = self.time_embed(timesteps)
         
-        # Input
-        h = self.input_conv(x)
+        # Initial convolution
+        h = self.conv_in(x)
         
-        # Downsampling
+        # Encoder
         hs = [h]
-        for module in self.downs:
-            if isinstance(module, ResidualBlock):
-                h = module(h, t_emb)
-            else:
-                h = module(h)
-            hs.append(h)
+        down_idx = 0
+        for level, mult in enumerate(self.model_channels for _ in range(len(self.downs) // self.num_res_blocks)):
+            for _ in range(self.num_res_blocks):
+                resblock, attn = self.downs[down_idx]
+                h = resblock(h, t_emb)
+                h = attn(h)
+                hs.append(h)
+                down_idx += 1
+            
+            # Downsample
+            downsample = self.down_samples[level] if level < len(self.down_samples) else None
+            if downsample is not None:
+                h = downsample(h)
+                hs.append(h)
         
         # Middle
-        for module in self.middle:
-            if isinstance(module, ResidualBlock):
-                h = module(h, t_emb)
-            else:
-                h = module(h)
+        h = self.middle[0](h, t_emb)
+        h = self.middle[1](h)
+        h = self.middle[2](h, t_emb)
         
-        # Upsampling
-        for module in self.ups:
-            if isinstance(module, ResidualBlock):
+        # Decoder
+        up_idx = 0
+        num_levels = len(self.up_samples)
+        for level in range(num_levels):
+            for _ in range(self.num_res_blocks + 1):
+                resblock, attn = self.ups[up_idx]
                 h = torch.cat([h, hs.pop()], dim=1)
-                h = module(h, t_emb)
-            else:
-                h = module(h)
+                h = resblock(h, t_emb)
+                h = attn(h)
+                up_idx += 1
+            
+            # Upsample
+            upsample = self.up_samples[level]
+            if upsample is not None:
+                h = upsample(h)
         
-        return self.output_conv(h)
+        # Output
+        h = self.conv_out(h)
+        
+        return h
 
 
 class DDPM(nn.Module):

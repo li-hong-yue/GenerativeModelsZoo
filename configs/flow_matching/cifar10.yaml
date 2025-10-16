@@ -1,0 +1,61 @@
+model:
+  type: flow_matching
+  image_size: 32
+  in_channels: 3
+  model_channels: 128
+  channel_mult: [1, 2, 2, 4]
+  num_res_blocks: 2
+  attention_resolutions: [16, 8]
+  dropout: 0.1
+  num_heads: 4
+  sigma_min: 0.001  # Minimum noise level for numerical stability
+
+data:
+  dataset: cifar10
+  path: "/home/groups/swl1/lhy/data/cifar10"  # Set your CIFAR-10 data path here
+  batch_size: 128
+  num_workers: 4
+  shuffle: true
+
+training:
+  epochs: 500
+  learning_rate: 0.0002  # 2e-4
+  weight_decay: 0.0
+  grad_clip: 1.0
+  
+  # Optimizer
+  optimizer: adamw
+  
+  # Learning rate scheduler
+  scheduler: cosine_warmup
+  warmup_epochs: 5
+  warmup_start_factor: 0.001  # Start at 0.1% of base LR
+  eta_min: 0  # Minimum learning rate for cosine annealing
+  
+  # EMA settings
+  use_ema: true
+  ema_decay: 0.9999
+  ema_inv_gamma: 1.0
+  ema_power: 0.6667  # 2/3
+  
+  # Sampling settings
+  num_inference_steps: 50  # Number of ODE integration steps during sampling
+  integration_method: euler  # euler or rk4 (rk4 is slower but more accurate)
+  
+  # Checkpointing
+  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/flow_matching_cifar10"
+  save_interval: 25
+  
+  # Logging
+  log_interval: 100
+  sample_interval: 1000
+  num_samples: 16
+
+wandb:
+  project: "generative-models"
+  entity: null  # Set your wandb entity/username
+  name: "flow_matching_cifar10"
+  tags: ["flow_matching", "cifar10", "conditional_flow_matching"]
+  log_model: false
+
+seed: 42

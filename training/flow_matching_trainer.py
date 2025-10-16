@@ -2,7 +2,6 @@ import torch
 import wandb
 import sys
 from pathlib import Path
-from diffusers import DDPMScheduler, DDIMScheduler
 from diffusers.training_utils import EMAModel
 
 # Add parent directory to path
@@ -11,8 +10,8 @@ sys.path.append(str(Path(__file__).parent.parent))
 from training.base_trainer import BaseTrainer
 
 
-class DiffusionTrainer(BaseTrainer):
-    """Trainer for Diffusion Models (DDPM, DiT, etc.)."""
+class FlowMatchingTrainer(BaseTrainer):
+    """Trainer for Flow Matching Models."""
     
     def __init__(self, model, config, train_loader, device):
         super().__init__(model, config, train_loader, device)
@@ -31,33 +30,13 @@ class DiffusionTrainer(BaseTrainer):
         else:
             self.ema = None
         
-        # Setup sampling scheduler
-        self.setup_sampling_scheduler()
-        
         # Sampling parameters
         self.num_inference_steps = config['training'].get('num_inference_steps', 50)
-    
-    def setup_sampling_scheduler(self):
-        """Setup scheduler for sampling."""
-        scheduler_type = self.config['training'].get('sampling_scheduler', 'ddpm')
-        num_train_timesteps = self.model.timesteps
-        
-        if scheduler_type == 'ddpm':
-            self.sampling_scheduler = DDPMScheduler(
-                num_train_timesteps=num_train_timesteps,
-                beta_schedule=self.config['model'].get('beta_schedule', 'linear')
-            )
-        elif scheduler_type == 'ddim':
-            self.sampling_scheduler = DDIMScheduler(
-                num_train_timesteps=num_train_timesteps,
-                beta_schedule=self.config['model'].get('beta_schedule', 'linear')
-            )
-        else:
-            raise ValueError(f"Unknown sampling scheduler: {scheduler_type}")
+        self.integration_method = config['training'].get('integration_method', 'euler')
     
     def compute_loss(self, batch):
         """
-        Compute diffusion loss for a batch.
+        Compute flow matching loss for a batch.
         
         Args:
             batch: Tuple of (images, labels) or just images
@@ -71,6 +50,10 @@ class DiffusionTrainer(BaseTrainer):
             images = batch[0]
         else:
             images = batch
+        
+        # Normalize images to [-1, 1] if they're in [0, 1]
+        if images.min() >= 0 and images.max() <= 1:
+            images = images * 2 - 1
         
         # Compute loss using model's loss function
         loss, loss_dict = self.model.loss_function(images)
@@ -100,7 +83,7 @@ class DiffusionTrainer(BaseTrainer):
             use_ema: Whether to use EMA model for sampling
             
         Returns:
-            samples: Generated images
+            samples: Generated images in [0, 1] range
         """
         # Use EMA model if available
         if use_ema and self.use_ema:
@@ -109,21 +92,13 @@ class DiffusionTrainer(BaseTrainer):
         
         self.model.eval()
         
-        # Start from random noise
-        shape = (batch_size, self.model.in_channels, self.model.image_size, self.model.image_size)
-        image = torch.randn(shape, device=self.device)
-        
-        # Set timesteps for sampling
-        self.sampling_scheduler.set_timesteps(self.num_inference_steps)
-        
-        # Denoise
-        for t in self.sampling_scheduler.timesteps:
-            # Predict noise
-            timesteps = torch.full((batch_size,), t, device=self.device, dtype=torch.long)
-            noise_pred = self.model(image, timesteps)
-            
-            # Compute previous image
-            image = self.sampling_scheduler.step(noise_pred, t, image).prev_sample
+        # Generate samples using ODE integration
+        samples = self.model.sample(
+            batch_size=batch_size,
+            num_steps=self.num_inference_steps,
+            device=self.device,
+            method=self.integration_method
+        )
         
         # Restore original model if using EMA
         if use_ema and self.use_ema:
@@ -131,10 +106,11 @@ class DiffusionTrainer(BaseTrainer):
         
         self.model.train()
         
-        # Clamp to [0, 1] range
-        image = torch.clamp(image, 0.0, 1.0)
+        # Convert from [-1, 1] to [0, 1] range
+        samples = (samples + 1) / 2
+        samples = torch.clamp(samples, 0.0, 1.0)
         
-        return image
+        return samples
     
     def log_samples(self, batch):
         """Log original images and generated samples to wandb."""
@@ -143,10 +119,14 @@ class DiffusionTrainer(BaseTrainer):
             self._last_batch.size(0)
         )
         
+        # Convert original images from [-1, 1] to [0, 1] for visualization
+        original_images = (self._last_batch + 1) / 2
+        original_images = torch.clamp(original_images, 0.0, 1.0)
+        
         # Log original images
         wandb.log({
             'samples/original': [
-                wandb.Image(self._last_batch[i])
+                wandb.Image(original_images[i])
                 for i in range(num_samples)
             ],
             'step': self.global_step

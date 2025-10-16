@@ -44,7 +44,8 @@ def get_model(config, device):
         'wgan': ('models.gan', 'WGAN'),
         'ddpm': ('models.ddpm', 'DDPM'),
         'dit': ('models.dit', 'DiT'),
-        
+        'cfg': ('models.cfg', 'CFG'),
+        'flow_matching': ('models.flow_matching', 'FlowMatching'),
     }
 
     if model_type not in model_map:
@@ -83,6 +84,8 @@ def get_trainer(model, config, train_loader, device):
          'wgan': ('training.gan_trainer', 'GANTrainer'),
         'ddpm': ('training.diffusion_trainer', 'DiffusionTrainer'),
         'dit': ('training.diffusion_trainer', 'DiffusionTrainer'),
+        'cfg': ('training.cfg_trainer', 'CFGTrainer'),
+        'flow_matching': ('training.flow_matching_trainer', 'FlowMatchingTrainer'),
     }
 
     if model_type not in trainer_map:
