@@ -27,6 +27,11 @@ Example:
 ```
 python training/train.py --config configs/ddpm/cifar10.yaml
 ```
+## 🧪 Evaluation
+
+```
+python evaluation/eval.py --config configs/{model}/{dataset}.yaml
+```
 
 ## 📂 Structure
 
