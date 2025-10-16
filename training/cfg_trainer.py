@@ -82,15 +82,34 @@ class CFGTrainer(BaseTrainer):
         self._last_batch_labels = labels
         
         return loss, loss_dict
+
+    def train_step_full_precision(self, batch):
+        """Single training step without AMP (full precision)."""
+        self.optimizer.zero_grad()
     
-    def train_step(self, batch):
-        """Single training step with EMA update."""
-        loss, loss_dict = super().train_step(batch)
-        
-        # Update EMA
+        # Compute loss in full precision
+        loss, loss_dict = self.compute_loss(batch)
+    
+        # Backpropagate
+        loss.backward()
+    
+        # Gradient clipping
+        if self.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
+    
+        # Step optimizer
+        self.optimizer.step()
         if self.use_ema:
             self.ema.step(self.model.parameters())
-        
+    
+        return loss.item(), loss_dict
+
+    def train_step(self, batch): 
+        """Single training step with EMA update.""" 
+        loss, loss_dict = super().train_step(batch) 
+        # Update EMA 
+        if self.use_ema: 
+            self.ema.step(self.model.parameters()) 
         return loss, loss_dict
     
     @torch.no_grad()

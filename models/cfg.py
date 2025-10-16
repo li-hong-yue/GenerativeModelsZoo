@@ -2,14 +2,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-from models.ddpm import UNet, SinusoidalPositionEmbeddings
+from .ddpm import UNet, SinusoidalPositionEmbedding, ResidualBlock, AttentionBlock
 
 
 class ClassEmbedding(nn.Module):
     """Embedding for class labels."""
     def __init__(self, num_classes, embedding_dim):
         super().__init__()
-        self.embedding = nn.Embedding(num_classes, embedding_dim)
+        self.embedding = nn.Embedding(num_classes+1, embedding_dim)
     
     def forward(self, class_labels):
         """
@@ -22,7 +22,7 @@ class ClassEmbedding(nn.Module):
         return self.embedding(class_labels)
 
 
-class ClassConditionalUNet(nn.Module):
+class ClassConditionalUNet(UNet):
     """UNet architecture for class-conditional diffusion."""
     def __init__(
         self,
@@ -36,137 +36,80 @@ class ClassConditionalUNet(nn.Module):
         num_heads=4,
         num_classes=10
     ):
-        super().__init__()
-        
-        self.in_channels = in_channels
-        self.model_channels = model_channels
-        self.num_classes = num_classes
-        
-        # Time embedding
-        time_emb_dim = model_channels * 4
-        self.time_embedding = nn.Sequential(
-            SinusoidalPositionEmbeddings(model_channels),
-            nn.Linear(model_channels, time_emb_dim),
-            nn.SiLU(),
-            nn.Linear(time_emb_dim, time_emb_dim),
+        super().__init__(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            model_channels=model_channels,
+            channel_mult=channel_mult,
+            num_res_blocks=num_res_blocks,
+            attention_resolutions=attention_resolutions,
+            dropout=dropout,
+            num_heads=num_heads
         )
         
-        # Class embedding
-        self.class_embedding = ClassEmbedding(num_classes, time_emb_dim)
-        
-        # Project class embedding to time embedding dimension
-        self.class_proj = nn.Linear(time_emb_dim, time_emb_dim)
-        
-        # Combine time and class embeddings
-        self.time_class_proj = nn.Linear(time_emb_dim * 2, time_emb_dim)
-        
-        # Input projection
-        self.input_conv = nn.Conv2d(in_channels, model_channels, kernel_size=3, padding=1)
-        
-        # Downsampling
-        self.downs = nn.ModuleList()
-        ch = model_channels
-        chs = [ch]
-        
-        for level, mult in enumerate(channel_mult):
-            out_ch = model_channels * mult
-            
-            for _ in range(num_res_blocks):
-                from models.ddpm import ResidualBlock, AttentionBlock
-                self.downs.append(ResidualBlock(ch, out_ch, time_emb_dim, dropout))
-                ch = out_ch
-                chs.append(ch)
-                
-                if level in attention_resolutions or (level == len(channel_mult) - 1):
-                    self.downs.append(AttentionBlock(ch, num_heads))
-            
-            if level != len(channel_mult) - 1:
-                self.downs.append(nn.Conv2d(ch, ch, kernel_size=3, stride=2, padding=1))
-                chs.append(ch)
-        
-        # Middle
-        from models.ddpm import ResidualBlock, AttentionBlock
-        self.middle = nn.ModuleList([
-            ResidualBlock(ch, ch, time_emb_dim, dropout),
-            AttentionBlock(ch, num_heads),
-            ResidualBlock(ch, ch, time_emb_dim, dropout),
-        ])
-        
-        # Upsampling
-        self.ups = nn.ModuleList()
-        
-        for level, mult in reversed(list(enumerate(channel_mult))):
-            out_ch = model_channels * mult
-            
-            for i in range(num_res_blocks + 1):
-                from models.ddpm import ResidualBlock, AttentionBlock
-                self.ups.append(ResidualBlock(ch + chs.pop(), out_ch, time_emb_dim, dropout))
-                ch = out_ch
-                
-                if level in attention_resolutions or (level == len(channel_mult) - 1):
-                    self.ups.append(AttentionBlock(ch, num_heads))
-            
-            if level != 0:
-                self.ups.append(nn.ConvTranspose2d(ch, ch, kernel_size=4, stride=2, padding=1))
-        
-        # Output projection
-        self.output_conv = nn.Sequential(
-            nn.GroupNorm(8, ch),
-            nn.SiLU(),
-            nn.Conv2d(ch, out_channels, kernel_size=3, padding=1),
-        )
-    
+        # Add class embedding module
+        time_embed_dim = model_channels * 4
+        self.class_embed = ClassEmbedding(num_classes, time_embed_dim)
+
     def forward(self, x, timesteps, class_labels):
         """
-        Forward pass with class conditioning.
-        
         Args:
-            x: Input image tensor (batch_size, in_channels, H, W)
-            timesteps: Timestep tensor (batch_size,)
-            class_labels: Class label tensor (batch_size,)
-        
+            x: Input image tensor of shape (B, C, H, W)
+            timesteps: Tensor of shape (B,) with diffusion timesteps
+            class_labels: Tensor of shape (B,) with integer class labels
         Returns:
-            output: Denoised image tensor
+            Tensor of shape (B, out_channels, H, W)
         """
-        # Time embedding
-        t_emb = self.time_embedding(timesteps)
-        
-        # Class embedding
-        c_emb = self.class_embedding(class_labels)
-        c_emb = self.class_proj(c_emb)
-        
-        # Combine time and class embeddings
-        combined_emb = torch.cat([t_emb, c_emb], dim=-1)
-        combined_emb = self.time_class_proj(combined_emb)
-        
-        # Input
-        h = self.input_conv(x)
-        
-        # Downsampling
+        # Timestep embedding
+        t_emb = self.time_embed(timesteps)
+
+        # Class embedding (added to timestep embedding)
+        c_emb = self.class_embed(class_labels)
+        t_emb = t_emb + c_emb
+
+        # Rest of the forward pass is identical to UNet
+        h = self.conv_in(x)
         hs = [h]
-        for module in self.downs:
-            if hasattr(module, '__class__') and module.__class__.__name__ == 'ResidualBlock':
-                h = module(h, combined_emb)
-            else:
-                h = module(h)
-            hs.append(h)
-        
+        down_idx = 0
+
+        for level, mult in enumerate(self.model_channels for _ in range(len(self.downs) // self.num_res_blocks)):
+            for _ in range(self.num_res_blocks):
+                resblock, attn = self.downs[down_idx]
+                h = resblock(h, t_emb)
+                h = attn(h)
+                hs.append(h)
+                down_idx += 1
+
+            # Downsample
+            downsample = self.down_samples[level] if level < len(self.down_samples) else None
+            if downsample is not None:
+                h = downsample(h)
+                hs.append(h)
+
         # Middle
-        for module in self.middle:
-            if hasattr(module, '__class__') and module.__class__.__name__ == 'ResidualBlock':
-                h = module(h, combined_emb)
-            else:
-                h = module(h)
-        
-        # Upsampling
-        for module in self.ups:
-            if hasattr(module, '__class__') and module.__class__.__name__ == 'ResidualBlock':
+        h = self.middle[0](h, t_emb)
+        h = self.middle[1](h)
+        h = self.middle[2](h, t_emb)
+
+        # Decoder
+        up_idx = 0
+        num_levels = len(self.up_samples)
+        for level in range(num_levels):
+            for _ in range(self.num_res_blocks + 1):
+                resblock, attn = self.ups[up_idx]
                 h = torch.cat([h, hs.pop()], dim=1)
-                h = module(h, combined_emb)
-            else:
-                h = module(h)
-        
-        return self.output_conv(h)
+                h = resblock(h, t_emb)
+                h = attn(h)
+                up_idx += 1
+
+            # Upsample
+            upsample = self.up_samples[level]
+            if upsample is not None:
+                h = upsample(h)
+
+        # Output
+        h = self.conv_out(h)
+        return h
 
 
 class CFG(nn.Module):
