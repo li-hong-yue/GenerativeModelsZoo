@@ -118,7 +118,7 @@ class DiT(nn.Module):
     """
     def __init__(
         self,
-        img_size=32,
+        image_size=32,
         patch_size=4,
         in_channels=3,
         hidden_size=768,
@@ -135,11 +135,11 @@ class DiT(nn.Module):
         self.patch_size = patch_size
         self.in_channels = in_channels
         self.out_channels = in_channels
-        self.num_patches = (img_size // patch_size) ** 2
+        self.num_patches = (image_size // patch_size) ** 2
         self.timesteps = timesteps
         
         # Patch embedding
-        self.patch_embed = PatchEmbed(img_size, patch_size, in_channels, hidden_size)
+        self.patch_embed = PatchEmbed(image_size, patch_size, in_channels, hidden_size)
         
         # Positional embedding
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, hidden_size))

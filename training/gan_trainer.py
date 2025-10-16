@@ -203,6 +203,18 @@ class GANTrainer(BaseTrainer):
         epoch_losses = {k: v / n_batches for k, v in epoch_losses.items()}
         
         return epoch_losses
+
+    @torch.no_grad()
+    def sample(self, num_samples):
+        self.model.eval()
+        generated = self.model.sample(num_samples, self.device)
+            
+        self.model.train()
+        
+        # Clamp to [0, 1] range
+        image = torch.clamp(generated, 0.0, 1.0)
+        
+        return image
     
     def log_samples(self, batch):
         """Log real and generated images to wandb."""

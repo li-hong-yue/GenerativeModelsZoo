@@ -201,8 +201,8 @@ class DiffusionTrainer(BaseTrainer):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if self.scheduler and checkpoint.get('scheduler_state_dict'):
-            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+       # if self.scheduler and checkpoint.get('scheduler_state_dict'):
+       #     self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         
         # Load EMA state if available
         if self.use_ema and 'ema_state_dict' in checkpoint:

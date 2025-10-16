@@ -154,6 +154,36 @@ class CFGTrainer(BaseTrainer):
         self.model.train()
         
         return images
+
+    @torch.no_grad()
+    def sample(self, batch_size):
+        """
+        Generate samples with random class labels.
+    
+        Args:
+            batch_size: Number of samples to generate
+    
+        Returns:
+            samples: Generated images
+            class_labels: Randomly chosen class labels used for generation
+        """
+        # Sample random class labels uniformly
+        class_labels = torch.randint(
+            low=0,
+            high=self.num_classes,
+            size=(batch_size,),
+            device=self.device
+        )
+    
+        # Generate images using the conditional sampler
+        samples = self.sample_conditional(
+            num_samples=batch_size,
+            class_labels=class_labels,
+            use_ema=True,
+            guidance_scale=self.guidance_scale
+        )
+    
+        return samples
     
     def log_samples(self, batch):
         """Log original images and generated samples per class to wandb."""

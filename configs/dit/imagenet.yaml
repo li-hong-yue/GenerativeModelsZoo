@@ -1,6 +1,6 @@
 model:
   type: dit  # diffusion transformer
-  img_size: 256
+  image_size: 256
   patch_size: 16  # Larger patches for larger images
   in_channels: 3
   hidden_size: 768  # DiT-B configuration

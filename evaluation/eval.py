@@ -192,7 +192,7 @@ def evaluate_model(args):
     
     for i in tqdm(range(0, num_samples, batch_size), desc="Generating samples"):
         current_batch_size = min(batch_size, num_samples - i)
-        samples = trainer.sample(current_batch_size, use_ema=args.use_ema)
+        samples = trainer.sample(current_batch_size,)
         all_samples.append(samples.cpu())
     
     generated_samples = torch.cat(all_samples, dim=0)
@@ -240,7 +240,7 @@ def evaluate_model(args):
     results['checkpoint'] = str(checkpoint_path)
     results['num_samples'] = num_samples
     results['model_type'] = model_type
-    results['use_ema'] = args.use_ema
+   
     results['epoch'] = epoch
     results['num_parameters'] = n_params
     
@@ -258,7 +258,7 @@ def evaluate_model(args):
     print(f"Parameters: {n_params:,}")
     print("-"*50)
     for key, value in results.items():
-        if key not in ['checkpoint', 'num_samples', 'model_type', 'use_ema', 'epoch', 'num_parameters']:
+        if key not in ['checkpoint', 'num_samples', 'model_type',  'epoch', 'num_parameters']:
             if value is not None:
                 if isinstance(value, float):
                     print(f"{key}: {value:.4f}")
@@ -275,7 +275,7 @@ def main():
                        help='Path to config file')
     parser.add_argument('--checkpoint', type=str, default=None,
                        help='Path to specific checkpoint (default: use checkpoint_latest.pt)')
-    parser.add_argument('--use-best', action='store_true',
+    parser.add_argument('--use-best', action='store_true', default=True,
                        help='Use best checkpoint instead of latest')
     parser.add_argument('--num-samples', type=int, default=10000,
                        help='Number of samples to generate for evaluation')
@@ -287,10 +287,7 @@ def main():
                        help='Compute Inception Score')
     parser.add_argument('--save-individual', action='store_true',
                        help='Save individual sample images')
-    parser.add_argument('--use-ema', action='store_true', default=True,
-                       help='Use EMA weights for generation (default: True)')
-    parser.add_argument('--no-ema', dest='use_ema', action='store_false',
-                       help='Do not use EMA weights for generation')
+    
     
     args = parser.parse_args()
     

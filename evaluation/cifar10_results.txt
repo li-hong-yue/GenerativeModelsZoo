@@ -1,0 +1,60 @@
+Model: flow_matching
+Checkpoint: checkpoint_latest
+Epoch: 99
+Samples: 10000
+Parameters: 70,111,491
+--------------------------------------------------
+fid: 11.0970
+inception_score_mean: 5.4768
+inception_score_std: 0.1111
+==================================================
+Model: dit
+Checkpoint: checkpoint_latest
+Epoch: 299
+Samples: 10000
+Parameters: 32,523,696
+--------------------------------------------------
+fid: 26.8190
+inception_score_mean: 4.5990
+inception_score_std: 0.1581
+==================================================
+Model: ddpm
+Checkpoint: checkpoint_latest
+Epoch: 49
+Samples: 10000
+Parameters: 70,111,491
+--------------------------------------------------
+fid: 38.8879
+inception_score_mean: 4.7212
+inception_score_std: 0.1225
+==================================================
+Model: gan
+Checkpoint: checkpoint_latest
+Epoch: 199
+Samples: 10000
+Parameters: 8,697,028
+--------------------------------------------------
+fid: 55.7264
+inception_score_mean: 4.5170
+inception_score_std: 0.0651
+==================================================
+Model: wgan
+Checkpoint: checkpoint_latest
+Epoch: 199
+Samples: 10000
+Parameters: 8,697,028
+--------------------------------------------------
+fid: 91.7655
+inception_score_mean: 3.8034
+inception_score_std: 0.0993
+==================================================
+Model: cfg
+Checkpoint: checkpoint_latest
+Epoch: 149
+Samples: 10000
+Parameters: 70,117,123
+--------------------------------------------------
+fid: 51.9396
+inception_score_mean: 5.6031
+inception_score_std: 0.1811
+==================================================
