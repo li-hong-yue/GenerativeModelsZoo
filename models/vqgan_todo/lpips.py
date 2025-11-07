@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from torchvision import models
+
 from collections import namedtuple
 import requests
 from tqdm import tqdm
@@ -39,7 +40,7 @@ def get_ckpt_path(name, root):
 
 class LPIPS(nn.Module):
     def __init__(self):
-        super(LPIPS, self).__init__()
+        super().__init__()
         self.scaling_layer = ScalingLayer()
         self.chns = [64, 128, 256, 512, 512]  # vg16 features
         self.net = vgg16(pretrained=True, requires_grad=False)

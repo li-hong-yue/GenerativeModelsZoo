@@ -1,27 +1,27 @@
 import os
 import argparse
-
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torchvision import datasets
-from torchvision import transforms
+from torchvision import datasets, transforms
 from torchvision.utils import make_grid
-
-from torchvision import utils as vutils
-from discriminator import Discriminator
-from lpips import LPIPS
-from vqgan import VQGAN
-from utils import  weights_init #load_data,
-import matplotlib.pyplot as plt
-
 from torch import autocast
 from torch.cuda.amp import GradScaler
 
 import wandb
+
+
+
+from discriminator import Discriminator
+from lpips import LPIPS
+from vqgan_tokenizer import VQGAN
+
+
+
+
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -36,12 +36,9 @@ class TrainVQGAN:
         self.discriminator = Discriminator(args).to(device=args.device)
         #self.discriminator.load_state_dict(torch.load(os.path.join("/media/userdisk1/code/VQGAN-pytorch/checkpoints", "discriminator_epoch_308.pt")))
 
-        # self.discriminator.apply(weights_init)
+
         self.perceptual_loss = LPIPS().eval().to(device=args.device)
         self.opt_vq, self.opt_disc = self.configure_optimizers(args)
-        # self.usage_codebook = np.zeros(shape=(args.num_codebook_vectors))
-
-      
 
         self.train(args)
 
@@ -147,10 +144,7 @@ class TrainVQGAN:
                           os.path.join("/oak/stanford/groups/swl1/lhy/checkpoints", f"vqgan_epoch_{epoch}.pt"))
                 torch.save(self.discriminator.state_dict(),
                           os.path.join("/oak/stanford/groups/swl1/lhy/checkpoints", f"discriminator_epoch_{epoch}.pt"))
-                # plt.imshow(usage_codebook.reshape(32, 32))
-                # plt.savefig(os.path.join("checkpoints", f"codebook_epoch_{epoch}.png"))
-                # np.save(os.path.join("checkpoints", f"codebook_epoch_{epoch}.npy"), usage_codebook)
-
+               
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="VQGAN")

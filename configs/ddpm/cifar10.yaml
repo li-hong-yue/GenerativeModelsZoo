@@ -13,7 +13,7 @@ model:
 
 data:
   dataset: cifar10
-  path: "/home/groups/swl1/lhy/data/cifar10"  # Set your CIFAR-10 data path here
+  path: "/sailhome/asap7772/lhy/data"          # "/home/groups/swl1/lhy/data/cifar10"  # Set your CIFAR-10 data path here
   batch_size: 128
   num_workers: 4
   shuffle: true
@@ -27,8 +27,6 @@ training:
   # Optimizer
   optimizer: adamw
   
-  
-  
   # EMA settings
   use_ema: true
   ema_decay: 0.9999
@@ -40,7 +38,7 @@ training:
   num_inference_steps: 50  # Number of denoising steps during sampling
   
   # Checkpointing
-  checkpoint_dir: "/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/ddpm_cifar10"
+  checkpoint_dir:  "/nlp/scr/asap7772/checkpoints/ddpm_cifar10"    #"/oak/stanford/groups/swl1/lhy/checkpoints/generative_models/ddpm_cifar10"
   save_interval: 25
   
   # Logging

@@ -7,17 +7,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import utils as vutils
 from torch.utils.data import DataLoader
-from torchvision import datasets
-from torchvision import transforms
+from torchvision import datasets, transforms
 from torchvision.utils import make_grid
-
-
-from transformer import VQGANTransformer
-from utils import  plot_images
 from torch import autocast
 from torch.cuda.amp import GradScaler
 
 import wandb
+
+from transformer import VQGANTransformer
+from utils import  plot_images
+
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -80,8 +79,7 @@ class TrainTransformer:
                     with autocast(device_type='cuda', dtype=torch.float16):
                         imgs = imgs.to(device=args.device)
                         logits, targets = self.model(imgs)
-                       # print(imgs.shape, logits.shape, targets.shape)
-                       # assert 0
+             
                         loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1))
                     
                     scaler.scale(loss).backward()
