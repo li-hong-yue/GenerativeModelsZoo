@@ -127,6 +127,43 @@ def get_imagenet_dataloaders(config):
     
     return train_loader, val_loader
 
+def get_ffhq_dataloaders(config):
+    data_path = config['data']['path']
+    batch_size = config['data']['batch_size']
+    num_workers = config['data']['num_workers']
+    shuffle = config['data']['shuffle']
+    image_size = config['data'].get('image_size', 256)
+    
+    
+    # Training transforms with augmentation
+    train_transform = transforms.Compose([
+        transforms.Resize((image_size, image_size)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5]*3, [0.5]*3),  # [-1, 1] range
+    ])
+    
+    # Load datasets
+    train_dataset = datasets.ImageFolder(
+        root=f"{data_path}",
+        transform=train_transform
+    )
+    
+    
+    # Create dataloaders
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=True
+    )
+    
+    val_loader = None
+    
+    return train_loader, val_loader
+
 
 def get_dataloaders(config):
     """
@@ -144,5 +181,7 @@ def get_dataloaders(config):
         return get_cifar10_dataloaders(config)
     elif dataset_name == 'imagenet':
         return get_imagenet_dataloaders(config)
+    elif dataset_name == 'ffhq':
+        return get_ffhq_dataloaders(config)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")

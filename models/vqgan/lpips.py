@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from torchvision import models
+import torch.nn.functional as F
 
 from collections import namedtuple
 import requests
@@ -29,12 +30,13 @@ def download(url, local_path, chunk_size=1024):
                         pbar.update(chunk_size)
 
 
-def get_ckpt_path(name, root):
-    assert name in URL_MAP
-    path = os.path.join(root, CKPT_MAP[name])
+def get_ckpt_path(model_name):
+    assert model_name in URL_MAP
+    folder = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(folder, CKPT_MAP[model_name])
     if not os.path.exists(path):
-        print(f"Downloading {name} model from {URL_MAP[name]} to {path}")
-        download(URL_MAP[name], path)
+        print(f"Downloading {model_name} model from {URL_MAP[model_name]} to {path}")
+        download(URL_MAP[model_name], path)
     return path
 
 
@@ -53,11 +55,15 @@ class LPIPS(nn.Module):
         for param in self.parameters():
             param.requires_grad = False
 
-    def load_from_pretrained(self, name="vgg_lpips"):
-        ckpt = get_ckpt_path(name, "vgg_lpips")
+    def load_from_pretrained(self, model_name="vgg_lpips"):
+        ckpt = get_ckpt_path(model_name)
         self.load_state_dict(torch.load(ckpt, map_location=torch.device("cpu")), strict=False)
 
     def forward(self, real_x, fake_x):
+        # Resize both inputs to 256x256 using bicubic interpolation
+        real_x = F.interpolate(real_x, size=(256, 256), mode='bicubic', align_corners=False)
+        fake_x = F.interpolate(fake_x, size=(256, 256), mode='bicubic', align_corners=False)
+
         features_real = self.net(self.scaling_layer(real_x))
         features_fake = self.net(self.scaling_layer(fake_x))
         diffs = {}
@@ -70,7 +76,7 @@ class LPIPS(nn.Module):
 
 class ScalingLayer(nn.Module):
     def __init__(self):
-        super(ScalingLayer, self).__init__()
+        super().__init__()
         self.register_buffer("shift", torch.Tensor([-.030, -.088, -.188])[None, :, None, None])
         self.register_buffer("scale", torch.Tensor([.458, .448, .450])[None, :, None, None])
 
@@ -80,44 +86,17 @@ class ScalingLayer(nn.Module):
 
 class NetLinLayer(nn.Module):
     def __init__(self, in_channels, out_channels=1):
-        super(NetLinLayer, self).__init__()
+        super().__init__()
         self.model = nn.Sequential(
             nn.Dropout(),
             nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False)
         )
 
 
-# class VGG16(nn.Module):
-#     def __init__(self):
-#         super(VGG16, self).__init__()
-#         vgg_pretrained_features = vgg16(pretrained=True).features
-#         slices = [vgg_pretrained_features[i] for i in range(30)]
-#         self.slice1 = nn.Sequential(*slices[0:4])
-#         self.slice2 = nn.Sequential(*slices[4:9])
-#         self.slice3 = nn.Sequential(*slices[9:16])
-#         self.slice4 = nn.Sequential(*slices[16:23])
-#         self.slice5 = nn.Sequential(*slices[23:30])
-#
-#         for param in self.parameters():
-#             param.requires_grad = False
-#
-#     def forward(self, x):
-#         h = self.slice1(x)
-#         h_relu1 = h
-#         h = self.slice2(h)
-#         h_relu2 = h
-#         h = self.slice3(h)
-#         h_relu3 = h
-#         h = self.slice4(h)
-#         h_relu4 = h
-#         h = self.slice5(h)
-#         h_relu5 = h
-#         vgg_outputs = namedtuple("VGGOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3', 'relu5_3'])
-#         return vgg_outputs(h_relu1, h_relu2, h_relu3, h_relu4, h_relu5)
 
 class vgg16(torch.nn.Module):
     def __init__(self, requires_grad=False, pretrained=True):
-        super(vgg16, self).__init__()
+        super().__init__()
         vgg_pretrained_features = models.vgg16(pretrained=pretrained).features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()

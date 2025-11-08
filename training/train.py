@@ -35,6 +35,7 @@ def get_model(config, device):
         torch.nn.Module: Initialized model
     """
     model_type = config['model']['type'].lower()
+
     model_kwargs = {k: v for k, v in config['model'].items() if k != 'type'}
 
     model_map = {
@@ -46,6 +47,7 @@ def get_model(config, device):
         'dit': ('models.dit', 'DiT'),
         'cfg': ('models.cfg', 'CFG'),
         'flow_matching': ('models.flow_matching', 'FlowMatching'),
+        'vqgan': ('models.vqgan', 'VQGAN')
     }
 
     if model_type not in model_map:
@@ -81,11 +83,12 @@ def get_trainer(model, config, train_loader, device):
         'vae': ('training.vae_trainer', 'VAETrainer'),
         'vqvae': ('training.vqvae_trainer', 'VQVAETrainer'),
         'gan': ('training.gan_trainer', 'GANTrainer'),
-         'wgan': ('training.gan_trainer', 'GANTrainer'),
+        'wgan': ('training.gan_trainer', 'GANTrainer'),
         'ddpm': ('training.diffusion_trainer', 'DiffusionTrainer'),
         'dit': ('training.diffusion_trainer', 'DiffusionTrainer'),
         'cfg': ('training.cfg_trainer', 'CFGTrainer'),
         'flow_matching': ('training.flow_matching_trainer', 'FlowMatchingTrainer'),
+        'vqgan': ('training.vqgan_trainer', 'VQGANTrainer')
     }
 
     if model_type not in trainer_map:
@@ -115,8 +118,7 @@ def main(args):
     # Initialize wandb
     wandb.init(
         project=config['wandb']['project'],
-        dir= '/scratch/users/lhy',
-     #   entity=config['wandb']['entity'],
+        dir= '/nlp/scr/asap7772/checkpoints/',
         name=config['wandb']['name'],
         config=config,
         tags=config['wandb']['tags']

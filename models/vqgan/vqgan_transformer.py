@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from .mingpt import GPT
-from .vqgan_tokenizer import VQGAN
+from .vqgan_tokenizer import VQGANTokenizer
 
 
 class VQGANTransformer(nn.Module):
@@ -27,7 +27,7 @@ class VQGANTransformer(nn.Module):
 
     @staticmethod
     def load_vqgan(args):
-        model = VQGAN(args)
+        model = VQGANTokenizer(args)
         model.load_checkpoint(args.checkpoint_path)
         model = model.eval()
         return model

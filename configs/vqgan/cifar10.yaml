@@ -1,0 +1,44 @@
+model:
+  type: vqgan
+  mode: None         # tokenizer, transformer, or None
+  image_size: 32          # input image size
+  in_channels: 3          
+  ch: 128                  # base number of feature channels
+  ch_mult: [1,2]      # channel multiplier per resolution level
+  num_res_blocks: 1       # residual blocks per level
+  z_channels: 64   
+  num_codebook_vectors: 512
+  beta:  0.25
+  decay: 0.99
+  disc_start: 10000             # When to start the discriminator
+  disc_factor: 0.2              # Discriminator loss factor
+  rec_loss_factor: 1.0          # Weighting factor for reconstruction loss
+  perceptual_loss_factor: 1.0   # Weighting factor for perceptual loss
+  checkpoint_dir: &ckpt_dir "/nlp/scr/asap7772/checkpoints/vqgan_cifar10"
+
+data:
+  dataset: cifar10
+  path: "/sailhome/asap7772/lhy/data"  # Set your CIFAR-10 data path here
+  batch_size: 256
+  num_workers: 4
+  shuffle: true
+
+training:
+  epochs: 100
+  learning_rate: 0.0002
+  
+  # Checkpointing
+  checkpoint_dir: *ckpt_dir  # <- reuse the anchor
+  save_interval: 10  # Save every N epochs
+  
+  # Logging
+  sample_interval: 500  # Sample reconstructions every N steps
+
+
+wandb:
+  project: "generative-models"
+  name: "vqgan_cifar10"
+  tags: ["vqgan", "cifar10"]
+  log_model: false
+
+seed: 40
